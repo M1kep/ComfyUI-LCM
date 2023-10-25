@@ -77,6 +77,76 @@ class LCM_Sampler:
         return (images_tensor,)
 
 
+class LCM_SamplerComfy:
+    def __init__(self):
+        self.scheduler = LCMScheduler.from_pretrained(
+            path.join(path.dirname(__file__), "scheduler_config.json")
+        )
+        self.pipe = None
+
+    @classmethod
+    def INPUT_TYPES(s):
+        return {
+            "required": {
+                "seed": ("INT", {"default": 0, "min": 0, "max": 0xFFFFFFFFFFFFFFFF}),
+                "steps": ("INT", {"default": 4, "min": 1, "max": 10000}),
+                "cfg": (
+                    "FLOAT",
+                    {
+                        "default": 8.0,
+                        "min": 0.0,
+                        "max": 100.0,
+                        "step": 0.5,
+                        "round": 0.01,
+                    },
+                ),
+                "size": ("INT", {"default": 512, "min": 512, "max": 768}),
+                "num_images": ("INT", {"default": 1, "min": 1, "max": 64}),
+                # "latent": ("LATENT",),
+                "use_fp16": ("BOOLEAN", {"default": True}),
+                "conditioning": ("CONDITIONING",),
+            }
+        }
+
+    RETURN_TYPES = ("LATENT",)
+    FUNCTION = "sample"
+    CATEGORY = "sampling"
+
+    def sample(self, seed, steps, cfg, size, num_images, use_fp16, conditioning):
+        if self.pipe is None:
+            self.pipe = LatentConsistencyModelPipeline.from_pretrained(
+                safety_checker=None,
+                pretrained_model_name_or_path="SimianLuo/LCM_Dreamshaper_v7",
+                scheduler=self.scheduler,
+                # custom_revision="main",
+                # revision="fb9c5d167af11fd84454ae6493878b10bb63b067"
+            )
+
+            if use_fp16:
+                self.pipe.to(torch_device=get_torch_device(), torch_dtype=torch.float16)
+            else:
+                self.pipe.to(torch_device=get_torch_device(), torch_dtype=torch.float32)
+
+        torch.manual_seed(seed)
+        start_time = time.time()
+
+        result = self.pipe(
+            # prompt=positive_prompt,
+            prompt_embeds=conditioning[0][0],
+            width=size,
+            height=size,
+            guidance_scale=cfg,
+            num_inference_steps=steps,
+            # latents=latent["samples"].to(torch.float16),
+            num_images_per_prompt=num_images,
+            lcm_origin_steps=50,
+            output_type="latent",
+        ).images
+
+        print("LCM inference time: ", time.time() - start_time, "seconds")
+        # images_tensor = torch.from_numpy(result)
+
+        return ({"samples": result / 0.18215},)
 
 class LCM_img2img_Sampler:
     def __init__(self):
@@ -150,10 +220,11 @@ class LCM_img2img_Sampler:
 
 NODE_CLASS_MAPPINGS = {
     "LCM_Sampler": LCM_Sampler,
-    "LCM_img2img_Sampler": LCM_img2img_Sampler
+    "LCM_SamplerComfy": LCM_SamplerComfy,
+    "LCM_img2img_Sampler": LCM_img2img_Sampler,
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
     "LCM_Sampler": "LCM Sampler",
-    "LCM_img2img_Sampler": "LCM img2img Sampler"
+    "LCM_SamplerComfy": "LCM Sampler(Comfy)",
 }
