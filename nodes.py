@@ -106,6 +106,7 @@ class LCM_SamplerComfy:
                 "use_fp16": ("BOOLEAN", {"default": True}),
                 "conditioning": ("CONDITIONING",),
                 "torch_compile": ("BOOLEAN", {"default": False}),
+                "torch_compile_mode": (["default", "reduce-overhead", "max-autotune", "max-autotune-no-cudagraphs"], {"default": "default"}),
             }
         }
 
@@ -113,7 +114,7 @@ class LCM_SamplerComfy:
     FUNCTION = "sample"
     CATEGORY = "sampling"
 
-    def sample(self, seed, steps, cfg, size, num_images, use_fp16, conditioning, torch_compile):
+    def sample(self, seed, steps, cfg, size, num_images, use_fp16, conditioning, torch_compile, torch_compile_mode):
         if self.pipe is None:
             self.pipe = LatentConsistencyModelPipeline.from_pretrained(
                 safety_checker=None,
@@ -130,7 +131,7 @@ class LCM_SamplerComfy:
 
             if torch_compile:
                 self.pipe.unet = torch.compile(
-                    self.pipe.unet, mode="reduce-overhead", fullgraph=True
+                    self.pipe.unet, mode=torch_compile_mode, fullgraph=True
                 )
 
         torch.manual_seed(seed)
