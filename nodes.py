@@ -113,7 +113,7 @@ class LCM_SamplerComfy:
     FUNCTION = "sample"
     CATEGORY = "sampling"
 
-    def sample(self, seed, steps, cfg, size, num_images, use_fp16, conditioning):
+    def sample(self, seed, steps, cfg, size, num_images, use_fp16, conditioning, torch_compile):
         if self.pipe is None:
             self.pipe = LatentConsistencyModelPipeline.from_pretrained(
                 safety_checker=None,
