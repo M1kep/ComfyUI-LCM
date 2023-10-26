@@ -123,15 +123,15 @@ class LCM_SamplerComfy:
                 # revision="fb9c5d167af11fd84454ae6493878b10bb63b067"
             )
 
-            if torch_compile:
-                self.pipe.unet = torch.compile(
-                    self.pipe.unet, mode="reduce-overhead", fullgraph=True
-                )
-
             if use_fp16:
                 self.pipe.to(torch_device=get_torch_device(), torch_dtype=torch.float16)
             else:
                 self.pipe.to(torch_device=get_torch_device(), torch_dtype=torch.float32)
+
+            if torch_compile:
+                self.pipe.unet = torch.compile(
+                    self.pipe.unet, mode="reduce-overhead", fullgraph=True
+                )
 
         torch.manual_seed(seed)
         start_time = time.time()
