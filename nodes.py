@@ -1,3 +1,4 @@
+import folder_paths
 from .lcm.lcm_scheduler import LCMScheduler
 from .lcm.lcm_pipeline import LatentConsistencyModelPipeline
 from .lcm.lcm_i2i_pipeline import LatentConsistencyModelImg2ImgPipeline
@@ -107,6 +108,9 @@ class LCM_SamplerComfy:
                 "conditioning": ("CONDITIONING",),
                 "torch_compile": ("BOOLEAN", {"default": False}),
                 "torch_compile_mode": (["default", "reduce-overhead", "max-autotune", "max-autotune-no-cudagraphs"], {"default": "default"}),
+            },
+            "optional": {
+                "diffusers_model":  (folder_paths.get_filename_list("diffusers"),),
             }
         }
 
@@ -114,11 +118,16 @@ class LCM_SamplerComfy:
     FUNCTION = "sample"
     CATEGORY = "sampling"
 
-    def sample(self, seed, steps, cfg, size, num_images, use_fp16, conditioning, torch_compile, torch_compile_mode):
+    def sample(self, seed, steps, cfg, size, num_images, use_fp16, conditioning, torch_compile, torch_compile_mode, diffusers_model = None):
         if self.pipe is None:
+            if diffusers_model is not None:
+                diffusers_model_path = folder_paths.get_full_path("diffusers", diffusers_model)
+            else:
+                diffusers_model_path = "SimianLuo/LCM_Dreamshaper_v7" # Will hit HF
+
             self.pipe = LatentConsistencyModelPipeline.from_pretrained(
                 safety_checker=None,
-                pretrained_model_name_or_path="SimianLuo/LCM_Dreamshaper_v7",
+                pretrained_model_name_or_path=diffusers_model_path,
                 scheduler=self.scheduler,
                 # custom_revision="main",
                 # revision="fb9c5d167af11fd84454ae6493878b10bb63b067"
@@ -225,13 +234,33 @@ class LCM_img2img_Sampler:
         return (results,)
 
 
+class DiffusersSelector:
+    @classmethod
+    def INPUT_TYPES(s):
+        return {
+            "required": {
+                "diffusers_model": (folder_paths.get_filename_list("diffusers"),),
+            },
+        }
+
+    RETURN_TYPES = (folder_paths.get_filename_list("diffusers"),)
+    FUNCTION = "doit"
+    CATEGORY = "sampling"
+
+    def doit(self, diffusers_model):
+        return (diffusers_model,)
+
+
+
 NODE_CLASS_MAPPINGS = {
     "LCM_Sampler": LCM_Sampler,
     "LCM_SamplerComfy": LCM_SamplerComfy,
     "LCM_img2img_Sampler": LCM_img2img_Sampler,
+    "Diffusers_Selector": DiffusersSelector,
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
     "LCM_Sampler": "LCM Sampler",
     "LCM_SamplerComfy": "LCM Sampler(Comfy)",
+    "Diffusers_Selector": "Diffusers Selector",
 }
