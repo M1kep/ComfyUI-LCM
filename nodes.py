@@ -108,22 +108,20 @@ class LCM_SamplerComfy:
                 "conditioning": ("CONDITIONING",),
                 "torch_compile": ("BOOLEAN", {"default": False}),
                 "torch_compile_mode": (["default", "reduce-overhead", "max-autotune", "max-autotune-no-cudagraphs"], {"default": "default"}),
+                "diffusers_model":  (["HF(SimianLuo/LCM_Dreamshaper_v7)", *folder_paths.get_filename_list("diffusers")], ),
             },
-            "optional": {
-                "diffusers_model":  (folder_paths.get_filename_list("diffusers"),),
-            }
         }
 
     RETURN_TYPES = ("LATENT",)
     FUNCTION = "sample"
     CATEGORY = "sampling"
 
-    def sample(self, seed, steps, cfg, size, num_images, use_fp16, conditioning, torch_compile, torch_compile_mode, diffusers_model = None):
+    def sample(self, seed, steps, cfg, size, num_images, use_fp16, conditioning, torch_compile, torch_compile_mode, diffusers_model):
         if self.pipe is None:
-            if diffusers_model is not None:
+            if not diffusers_model.startswith("HF"):
                 diffusers_model_path = folder_paths.get_full_path("diffusers", diffusers_model)
             else:
-                diffusers_model_path = "SimianLuo/LCM_Dreamshaper_v7" # Will hit HF
+                diffusers_model_path = diffusers_model[3:-1] # remove HF() and trailing parenthesis
 
             self.pipe = LatentConsistencyModelPipeline.from_pretrained(
                 safety_checker=None,
