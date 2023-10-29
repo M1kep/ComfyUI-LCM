@@ -1,3 +1,6 @@
+# fmt: off
+import os
+
 import folder_paths
 from .lcm.lcm_scheduler import LCMScheduler
 from .lcm.lcm_pipeline import LatentConsistencyModelPipeline
@@ -84,9 +87,17 @@ class LCM_SamplerComfy:
             path.join(path.dirname(__file__), "scheduler_config.json")
         )
         self.pipe = None
+        self.is_compiled = False
 
     @classmethod
     def INPUT_TYPES(s):
+        paths = []
+        for search_path in folder_paths.get_folder_paths("diffusers"):
+            if os.path.exists(search_path):
+                for root, subdir, files in os.walk(search_path, followlinks=True):
+                    if "model_index.json" in files:
+                        paths.append(os.path.relpath(root, start=search_path))
+
         return {
             "required": {
                 "seed": ("INT", {"default": 0, "min": 0, "max": 0xFFFFFFFFFFFFFFFF}),
@@ -108,7 +119,7 @@ class LCM_SamplerComfy:
                 "conditioning": ("CONDITIONING",),
                 "torch_compile": ("BOOLEAN", {"default": False}),
                 "torch_compile_mode": (["default", "reduce-overhead", "max-autotune", "max-autotune-no-cudagraphs"], {"default": "default"}),
-                "diffusers_model":  (["HF(SimianLuo/LCM_Dreamshaper_v7)", *folder_paths.get_filename_list("diffusers")], ),
+                "diffusers_model":  (["HF(SimianLuo/LCM_Dreamshaper_v7)", *paths], ),
             },
         }
 
@@ -119,7 +130,14 @@ class LCM_SamplerComfy:
     def sample(self, seed, steps, cfg, size, num_images, use_fp16, conditioning, torch_compile, torch_compile_mode, diffusers_model):
         if self.pipe is None:
             if not diffusers_model.startswith("HF"):
-                diffusers_model_path = folder_paths.get_full_path("diffusers", diffusers_model)
+                for search_path in folder_paths.get_folder_paths("diffusers"):
+                    if os.path.exists(search_path):
+                        full_path = os.path.join(search_path, diffusers_model)
+                        if os.path.exists(full_path):
+                            diffusers_model_path = full_path
+                            break
+                else:
+                    raise RuntimeError(f"Could not find diffusers model: {diffusers_model}")
             else:
                 diffusers_model_path = diffusers_model[3:-1] # remove HF() and trailing parenthesis
 
