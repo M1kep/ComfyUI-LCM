@@ -1,5 +1,8 @@
+import PIL
+import numpy as np
 import torch
 from diffusers import DiffusionPipeline, AutoencoderKL, UNet2DConditionModel
+from diffusers.utils import PIL_INTERPOLATION
 from transformers import CLIPTokenizer, CLIPTextModel, CLIPImageProcessor
 from diffusers.pipelines.stable_diffusion import StableDiffusionPipelineOutput
 from diffusers.image_processor import VaeImageProcessor
@@ -8,6 +11,37 @@ from comfy.model_management import get_torch_device
 
 #from diffusers import logging
 #logger = logging.get_logger(__name__)  # pylint: disable=invalid-name
+from PIL import Image
+
+
+def _preprocess_adapter_image(image, height, width):
+    if isinstance(image, torch.Tensor):
+        return image
+    elif isinstance(image, PIL.Image.Image):
+        image = [image]
+
+    if isinstance(image[0], PIL.Image.Image):
+        image = [
+            np.array(i.resize((width, height), resample=PIL_INTERPOLATION["lanczos"]))
+            for i in image
+        ]
+        image = [
+            i[None, ..., None] if i.ndim == 2 else i[None, ...] for i in image
+        ]  # expand [h, w] or [h, w, c] to [b, h, w, c]
+        image = np.concatenate(image, axis=0)
+        image = np.array(image).astype(np.float32) / 255.0
+        image = image.transpose(0, 3, 1, 2)
+        image = torch.from_numpy(image)
+    elif isinstance(image[0], torch.Tensor):
+        if image[0].ndim == 3:
+            image = torch.stack(image, dim=0)
+        elif image[0].ndim == 4:
+            image = torch.cat(image, dim=0)
+        else:
+            raise ValueError(
+                f"Invalid image tensor! Expecting image tensor with 3 or 4 dimension, but recive: {image[0].ndim}"
+            )
+    return image
 
 
 class LatentConsistencyModelPipeline(DiffusionPipeline):
@@ -162,6 +196,10 @@ class LatentConsistencyModelPipeline(DiffusionPipeline):
     @torch.no_grad()
     def __call__(
         self,
+        adapter_weight,
+        adapter_img,
+        adapter,
+        cond,
         prompt: Union[str, List[str]] = None,
         height: Optional[int] = 768,
         width: Optional[int] = 768,
@@ -219,7 +257,15 @@ class LatentConsistencyModelPipeline(DiffusionPipeline):
         # 6. Get Guidance Scale Embedding
         w = torch.tensor(guidance_scale).repeat(bs)
         w_embedding = self.get_w_embedding(w, embedding_dim=256).to(
-            device=device, dtype=latents.dtype)
+            device=device, dtype=latents.dtype
+        )
+        adapter_input = _preprocess_adapter_image(adapter_img, 512, 512).to(
+            device=device
+        )
+        # adapter_input = adapter_input.half()
+        adapter_state = adapter(adapter_input)
+        for k, v in enumerate(adapter_state):
+            adapter_state[k] = v * adapter_weight
 
         # 7. LCM MultiStep Sampling Loop:
         with self.progress_bar(total=num_inference_steps) as progress_bar:
@@ -232,6 +278,9 @@ class LatentConsistencyModelPipeline(DiffusionPipeline):
                 model_pred = self.unet(
                     latents,
                     ts,
+                    down_intrablock_additional_residuals=[
+                        state.clone() for state in adapter_state
+                    ],
                     timestep_cond=w_embedding,
                     encoder_hidden_states=prompt_embeds,
                     cross_attention_kwargs=cross_attention_kwargs,

@@ -1,6 +1,10 @@
 # fmt: off
 import os
 
+import PIL
+from PIL import Image
+from torch import Tensor
+
 import folder_paths
 from .lcm.lcm_scheduler import LCMScheduler
 from .lcm.lcm_pipeline import LatentConsistencyModelPipeline
@@ -13,7 +17,7 @@ import numpy as np
 from comfy.model_management import get_torch_device
 
 MAX_SEED = np.iinfo(np.int32).max
-
+from diffusers import T2IAdapter
 
 def randomize_seed_fn(seed: int, randomize_seed: bool) -> int:
     if randomize_seed:
@@ -80,6 +84,8 @@ class LCM_Sampler:
 
         return (images_tensor,)
 
+def tensor2pil(image: Tensor) -> PIL.Image.Image:
+    return Image.fromarray(np.clip(255. * image.cpu().numpy().squeeze(), 0, 255).astype(np.uint8))
 
 class LCM_SamplerComfy:
     def __init__(self):
@@ -120,6 +126,8 @@ class LCM_SamplerComfy:
                 "torch_compile": ("BOOLEAN", {"default": False}),
                 "torch_compile_mode": (["default", "reduce-overhead", "max-autotune", "max-autotune-no-cudagraphs"], {"default": "default"}),
                 "diffusers_model":  (["HF(SimianLuo/LCM_Dreamshaper_v7)", *paths], ),
+                "adapter_image": ("IMAGE", {}),
+                "adapter_weight": ("FLOAT", {"min": 0.01, "max": 2, "step": .01})
             },
         }
 
@@ -127,7 +135,7 @@ class LCM_SamplerComfy:
     FUNCTION = "sample"
     CATEGORY = "sampling"
 
-    def sample(self, seed, steps, cfg, size, num_images, use_fp16, conditioning, torch_compile, torch_compile_mode, diffusers_model):
+    def sample(self, seed, steps, cfg, size, num_images, use_fp16, conditioning, torch_compile, torch_compile_mode, diffusers_model, adapter_image, adapter_weight):
         if self.pipe is None:
             if not diffusers_model.startswith("HF"):
                 for search_path in folder_paths.get_folder_paths("diffusers"):
@@ -149,6 +157,9 @@ class LCM_SamplerComfy:
                 # revision="fb9c5d167af11fd84454ae6493878b10bb63b067"
             )
 
+            self.adapter = adapter = T2IAdapter.from_pretrained("TencentARC/t2iadapter_openpose_sd14v1", torch_dtype=torch.float32)
+            self.adapter = self.adapter.to(torch.device('cuda'))
+
             if use_fp16:
                 self.pipe.to(torch_device=get_torch_device(), torch_dtype=torch.float16)
             else:
@@ -164,6 +175,10 @@ class LCM_SamplerComfy:
 
         result = self.pipe(
             # prompt=positive_prompt,
+            adapter_weight=adapter_weight,
+            adapter_img=tensor2pil(adapter_image),
+            adapter=self.adapter,
+            cond=conditioning,
             prompt_embeds=conditioning[0][0],
             width=size,
             height=size,
